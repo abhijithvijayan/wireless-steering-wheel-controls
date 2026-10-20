@@ -89,6 +89,7 @@
 		)
 		(capping no)
 		(filling no)
+		(grid_origin 131 94)
 		(pcbplotparams
 			(layerselection 0x00000000_00000000_55555555_5755f5ff)
 			(plot_on_all_layers_selection 0x00000000_00000000_00000000_00000000)
@@ -791,13 +792,24 @@
 		(embedded_fonts no)
 		(model "${KICAD10_3DMODEL_DIR}/Connector_PinHeader_2.54mm.3dshapes/PinHeader_2x06_P2.54mm_Vertical.step"
 			(offset
-				(xyz 0 0 0)
+				(xyz 0 -12.7 2.5)
 			)
 			(scale
 				(xyz 1 1 1)
 			)
 			(rotate
-				(xyz 0 0 0)
+				(xyz -180 -0 -0)
+			)
+		)
+		(model "/Users/abhijithvijayan/personal/wireless-steering-wheel-controls/circuit/custom/ESP32-C3_SUPERMINI_TH.step"
+			(offset
+				(xyz -4 -6.4 2.5)
+			)
+			(scale
+				(xyz 1 1 0.8)
+			)
+			(rotate
+				(xyz -90 -0 -90)
 			)
 		)
 	)
@@ -1245,6 +1257,17 @@
 			(uuid "60ba81cf-db14-4b6c-8e51-ddcf3670ef31")
 		)
 		(embedded_fonts no)
+		(model "/Users/abhijithvijayan/personal/wireless-steering-wheel-controls/circuit/custom/4051 v12.step"
+			(offset
+				(xyz 5.12 -12.8 2)
+			)
+			(scale
+				(xyz 1 0.65 1)
+			)
+			(rotate
+				(xyz -0 -0 90)
+			)
+		)
 	)
 	(footprint "Resistor_THT:R_Axial_DIN0207_L6.3mm_D2.5mm_P10.16mm_Horizontal"
 		(layer "F.Cu")
@@ -2821,7 +2844,7 @@
 		(descr "22-lead though-hole mounted DIP package, row spacing 10.16mm (400 mils)")
 		(tags "THT DIP DIL PDIP 2.54mm 10.16mm 400mil")
 		(property "Reference" "MUX 2"
-			(at 11.39 0.86 180)
+			(at 11.39 0.86 0)
 			(layer "F.SilkS")
 			(uuid "14dc4cf4-d416-4c5d-ac02-e286bc14244b")
 			(effects
@@ -2832,7 +2855,7 @@
 			)
 		)
 		(property "Value" "74HC4051"
-			(at 6 26.36 270)
+			(at 6 26.36 90)
 			(layer "F.Fab")
 			(uuid "77fd8ae9-fcc9-4712-9a30-aefc39c1ea66")
 			(effects
@@ -2843,7 +2866,7 @@
 			)
 		)
 		(property "Datasheet" "http://www.ti.com/lit/ds/symlink/cd74hc4051.pdf"
-			(at 0 0 270)
+			(at 0 0 90)
 			(layer "F.Fab")
 			(hide yes)
 			(uuid "2f25c605-4d23-49d6-8e7e-bde69ffbf681")
@@ -2854,7 +2877,7 @@
 			)
 		)
 		(property "Description" "8-channel analog multiplexer/demultiplexer, DIP-16/SOIC-16/TSSOP-16"
-			(at 0 0 270)
+			(at 0 0 90)
 			(layer "F.Fab")
 			(hide yes)
 			(uuid "faa9d64d-8993-46c2-9059-b57e3253e308")
@@ -2865,7 +2888,7 @@
 			)
 		)
 		(property "KiLib_Generator" "package/DIP/legacy"
-			(at 0 0 270)
+			(at 0 0 90)
 			(layer "F.SilkS")
 			(hide yes)
 			(uuid "4e41eb67-a12a-4936-b670-2b4a4e399df4")
@@ -3151,6 +3174,17 @@
 			(uuid "9d0391f9-8fe3-4f3c-bb5a-ff21d022e2b6")
 		)
 		(embedded_fonts no)
+		(model "/Users/abhijithvijayan/personal/wireless-steering-wheel-controls/circuit/custom/4051 v12.step"
+			(offset
+				(xyz 5.12 -12.8 2)
+			)
+			(scale
+				(xyz 1 0.65 1)
+			)
+			(rotate
+				(xyz -0 -0 90)
+			)
+		)
 	)
 	(footprint "MountingHole:MountingHole_2.2mm_M2"
 		(layer "F.Cu")
