@@ -63,6 +63,13 @@ class BLEScanCallback : public NimBLEScanCallbacks {
 
         const uint32_t now = millis();
         const uint32_t sinceLast = now - lastWheelHeardAt;
+        // Every valid frame, duplicates included, counts as liveness. This gives us:
+        // (1) sustained holds of one-shot buttons: a held button re-broadcasts the same frame,
+        //     so those duplicates are the only heartbeat keeping its mirror asserted.
+        //     This also what makes the head unit's learning mode work over the wheel
+        // (2) a true silence detector: the 500 ms failsafe fires only when the wheel is really
+        //     gone, and the new-session bypass below opens only after real silence
+        //     never while a same-seq stream is still on air.
         lastWheelHeardAt = now;
 
         const uint8_t button = packet[PacketIndex::BUTTON_DATA];
