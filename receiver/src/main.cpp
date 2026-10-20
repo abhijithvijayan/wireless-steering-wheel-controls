@@ -43,7 +43,9 @@ volatile uint32_t lastWheelHeardAt = 0; // heartbeat for the timeout failsafe
 
 enum OutputState : uint8_t {
     OUTPUT_IDLE,
-    OUTPUT_ACTIVE
+    OUTPUT_ACTIVE,
+    TAP_ASSERTED,
+    TAP_RELEASED
 };
 
 OutputState outputState = OUTPUT_IDLE;
@@ -168,10 +170,16 @@ constexpr uint8_t TAP_QUEUE_SIZE = 10;
 constexpr uint32_t TAP_HOLD_MS = 50;
 constexpr uint32_t TAP_SPACING_MS = 50;
 
+// a mirrored button may never stay asserted longer than this, a stuck transmitter
+// advert is indistinguishable from a genuinely held one-shot, so bound it in time
+constexpr uint32_t MIRROR_CAP_MS = 10000;
+
 uint8_t tapQueue[TAP_QUEUE_SIZE];
 
 uint8_t tapHead = 0;
 uint8_t tapCount = 0;
+
+uint32_t phaseStartedAt = 0;
 
 void enqueueTap(const uint8_t button) {
     if (tapCount >= TAP_QUEUE_SIZE) {
@@ -230,15 +238,40 @@ void processButtonsPress(const uint32_t now) {
                 const uint8_t nextButton = pendingWheelButton;
                 const uint8_t nextEvent = pendingWheelEvent;
 
-                if ((nextEvent == PRESS || nextEvent == HOLD) && nextButton < BUTTON_COUNT) {
-                    activateKeyCode(nextButton);
-                    currentActiveButton = nextButton;
-                    outputState = OUTPUT_ACTIVE;
+                if (nextButton < BUTTON_COUNT) {
+                     if (BUTTONS[nextButton].repeats) {
+                        // Repeatable buttons (VOL±/SRC±) are never mirrored: each 50 ms tap
+                        // must be bought by a frame that passed seq dedupe, so a stale
+                        // re-broadcast or lost RELEASE can never keep the volume moving.
+                        if (nextEvent == PRESS || nextEvent == HOLD) {
+                            enqueueTap(nextButton);
+                        }
+                    } else if (nextEvent == PRESS) {
+                        // One-shots (phone/voice/mute) keep real hold semantics — the wire
+                        // mirrors the button so long holds (e.g. head-unit learning) work.
+                        activateKeyCode(nextButton);
+                        currentActiveButton = nextButton;
+                        phaseStartedAt = now;
+                        outputState = OUTPUT_ACTIVE;
 
-                    #ifdef DEBUG_BUILD
-                        Serial.printf("[mux] assert %s\n", OUTPUT_CODES[nextButton].name);
-                    #endif
+                        #ifdef DEBUG_BUILD
+                            Serial.printf("[mux] assert %s\n", OUTPUT_CODES[nextButton].name);
+                        #endif
+                    }
                 }
+            } else if (tapCount > 0) {
+                // wheel checked first: a live wheel event outranks queued taps
+                const uint8_t tapButton = tapQueue[tapHead];
+                tapHead = static_cast<uint8_t>((tapHead + 1) % TAP_QUEUE_SIZE);
+                tapCount -= 1;
+
+                activateKeyCode(tapButton);
+                phaseStartedAt = now;
+                outputState = TAP_ASSERTED;
+
+                #ifdef DEBUG_BUILD
+                    Serial.printf("[mux] tap %s (queue depth %u)\n", OUTPUT_CODES[tapButton].name, tapCount);
+                #endif
             }
 
             break;
@@ -260,9 +293,14 @@ void processButtonsPress(const uint32_t now) {
                     #ifdef DEBUG_BUILD
                         Serial.printf("[mux] release (%s)\n", nextEvent == FAULT ? "wheel FAULT" : "wheel RELEASE");
                     #endif
+                } else if (BUTTONS[nextButton].repeats) {
+                    // repeatable pressed while a one-shot is held: queue the tap,
+                    // keep the mirror; the tap plays after this mirror releases
+                    enqueueTap(nextButton);
                 } else if (nextButton != currentActiveButton) {
                     activateKeyCode(nextButton);
                     currentActiveButton = nextButton;
+                    phaseStartedAt = now;
 
                     #ifdef DEBUG_BUILD
                         Serial.printf("[mux] switch to %s\n", OUTPUT_CODES[nextButton].name);
@@ -276,12 +314,36 @@ void processButtonsPress(const uint32_t now) {
                 #ifdef DEBUG_BUILD
                     Serial.printf("[mux] release (heartbeat TIMEOUT after %ums)\n", HEARTBEAT_TIMEOUT_MS);
                 #endif
+            } else if (now - phaseStartedAt >= MIRROR_CAP_MS) {
+                // stuck-advert failsafe: nothing legitimate holds a one-shot this long;
+                // re-assert requires a fresh PRESS (IDLE only mirrors on PRESS)
+                releaseCodes();
+                currentActiveButton = BUTTON_NONE;
+                outputState = OUTPUT_IDLE;
+
+                #ifdef DEBUG_BUILD
+                    Serial.printf("[mux] release (mirror CAP after %ums)\n", MIRROR_CAP_MS);
+                #endif
             }
 
             break;
         }
 
-        default: {
+        case TAP_ASSERTED: {
+            if (now - phaseStartedAt >= TAP_HOLD_MS) {
+                releaseCodes();
+                phaseStartedAt = now;
+                outputState = TAP_RELEASED;
+            }
+
+            break;
+        }
+
+        case TAP_RELEASED: {
+            if (now - phaseStartedAt >= TAP_SPACING_MS) {
+                outputState = OUTPUT_IDLE;
+            }
+
             break;
         }
     }
