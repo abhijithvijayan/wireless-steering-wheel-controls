@@ -21,6 +21,11 @@ constexpr uint32_t LOOP_YIELD_MS = 5;
 
 constexpr uint32_t HEARTBEAT_TIMEOUT_MS = 500;
 
+// a mirrored repeatable must be renewed by FRESH-seq events this often — a real hold
+// sends them every 200 ms; a stuck advert only produces duplicates, so its mirror
+// dies here instead of running the volume away
+constexpr uint32_t FRESH_EVENT_TIMEOUT_MS = 500;
+
 constexpr uint8_t PIN_MUX_S0 = 0;
 constexpr uint8_t PIN_MUX_S1 = 1;
 constexpr uint8_t PIN_MUX_S2 = 3;
@@ -40,6 +45,7 @@ volatile uint8_t pendingWheelButton = BUTTON_NONE;
 volatile uint8_t pendingWheelEvent = RELEASE;
 volatile bool hasPendingWheelEvent = false;
 volatile uint32_t lastWheelHeardAt = 0; // heartbeat for the timeout failsafe
+volatile uint32_t lastFreshEventAt = 0; // last dedupe-passing event — a repeatable mirror releases without one for FRESH_EVENT_TIMEOUT_MS
 
 enum OutputState : uint8_t {
     OUTPUT_IDLE,
@@ -88,6 +94,7 @@ class BLEScanCallback : public NimBLEScanCallbacks {
 
         initialized = true;
         lastSequence = sequence;
+        lastFreshEventAt = now; // passed dedupe → a genuinely fresh event
 
         pendingWheelButton = button;
         pendingWheelEvent = event;
@@ -238,26 +245,21 @@ void processButtonsPress(const uint32_t now) {
                 const uint8_t nextButton = pendingWheelButton;
                 const uint8_t nextEvent = pendingWheelEvent;
 
-                if (nextButton < BUTTON_COUNT) {
-                     if (BUTTONS[nextButton].repeats) {
-                        // Repeatable buttons (VOL±/SRC±) are never mirrored: each 50 ms tap
-                        // must be bought by a frame that passed seq dedupe, so a stale
-                        // re-broadcast or lost RELEASE can never keep the volume moving.
-                        if (nextEvent == PRESS || nextEvent == HOLD) {
-                            enqueueTap(nextButton);
-                        }
-                    } else if (nextEvent == PRESS) {
-                        // One-shots (phone/voice/mute) keep real hold semantics — the wire
-                        // mirrors the button so long holds (e.g. head-unit learning) work.
-                        activateKeyCode(nextButton);
-                        currentActiveButton = nextButton;
-                        phaseStartedAt = now;
-                        outputState = OUTPUT_ACTIVE;
+                // Everything from the wheel mirrors, so the stereo gets real holds (its own
+                // fast volume ramp, a single beep). Repeatables may also enter on HOLD
+                // (joining mid-hold after a reboot) and are bounded by the fresh-event timeout in
+                // OUTPUT_ACTIVE — a stuck advert's duplicates can't sustain them. One-shots
+                // enter on PRESS only and live on the duplicate heartbeat + 10 s cap.
+                if (nextButton < BUTTON_COUNT &&
+                    (nextEvent == PRESS || (nextEvent == HOLD && BUTTONS[nextButton].repeats))) {
+                    activateKeyCode(nextButton);
+                    currentActiveButton = nextButton;
+                    phaseStartedAt = now;
+                    outputState = OUTPUT_ACTIVE;
 
-                        #ifdef DEBUG_BUILD
-                            Serial.printf("[mux] assert %s\n", OUTPUT_CODES[nextButton].name);
-                        #endif
-                    }
+                    #ifdef DEBUG_BUILD
+                        Serial.printf("[mux] assert %s\n", OUTPUT_CODES[nextButton].name);
+                    #endif
                 }
             } else if (tapCount > 0) {
                 // wheel checked first: a live wheel event outranks queued taps
@@ -293,10 +295,6 @@ void processButtonsPress(const uint32_t now) {
                     #ifdef DEBUG_BUILD
                         Serial.printf("[mux] release (%s)\n", nextEvent == FAULT ? "wheel FAULT" : "wheel RELEASE");
                     #endif
-                } else if (BUTTONS[nextButton].repeats) {
-                    // repeatable pressed while a one-shot is held: queue the tap,
-                    // keep the mirror; the tap plays after this mirror releases
-                    enqueueTap(nextButton);
                 } else if (nextButton != currentActiveButton) {
                     activateKeyCode(nextButton);
                     currentActiveButton = nextButton;
@@ -314,9 +312,19 @@ void processButtonsPress(const uint32_t now) {
                 #ifdef DEBUG_BUILD
                     Serial.printf("[mux] release (heartbeat TIMEOUT after %ums)\n", HEARTBEAT_TIMEOUT_MS);
                 #endif
-            } else if (now - phaseStartedAt >= MIRROR_CAP_MS) {
-                // stuck-advert failsafe: nothing legitimate holds a one-shot this long;
-                // re-assert requires a fresh PRESS (IDLE only mirrors on PRESS)
+            } else if (BUTTONS[currentActiveButton].repeats && now - lastFreshEventAt >= FRESH_EVENT_TIMEOUT_MS) {
+                // a real hold renews this every 200 ms with fresh seqs; a stuck advert's
+                // duplicates don't — the mirror dies here instead of running the volume away
+                releaseCodes();
+                currentActiveButton = BUTTON_NONE;
+                outputState = OUTPUT_IDLE;
+
+                #ifdef DEBUG_BUILD
+                    Serial.printf("[mux] release (no fresh event for %ums)\n", FRESH_EVENT_TIMEOUT_MS);
+                #endif
+            } else if (!BUTTONS[currentActiveButton].repeats && now - phaseStartedAt >= MIRROR_CAP_MS) {
+                // stuck-advert failsafe for one-shots, whose duplicates legitimately sustain
+                // the mirror — so bound it in time; re-assert requires a fresh PRESS
                 releaseCodes();
                 currentActiveButton = BUTTON_NONE;
                 outputState = OUTPUT_IDLE;
